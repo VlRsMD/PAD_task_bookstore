@@ -89,6 +89,34 @@ def get_books():
 def add_book():
     print('Received request to add a new book.')
     logger.info('Received request to add a new book.')
+    data = request.get_json()
+    new_book = Book(title=data['title'], author=data['author'], price=data['price'], quantity=data['quantity'])
+    db.session.add(new_book)
+    db.session.commit()
+
+    if redis_cluster.exists('books'):
+        redis_cluster.delete('books')
+        print('Redis cache cleared.')
+        logger.info('Redis cache cleared.')
+
+    for replica_id in range(1, 5):
+        replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
+        try:
+            shutil.copy(source_tinydb_db_path, replica_db_path)
+            print(f"Data replicated successfully in replica {replica_id}")
+            logger.info(f"Data replicated successfully in replica {replica_id}")
+        except Exception as e:
+            print(f"Failed to replicate data in replica {replica_id}: {str(e)}")
+            logger.error(f"Failed to replicate data in replica {replica_id}: {str(e)}")
+
+    print('New book added successfully.')
+    logger.info('New book added successfully.')
+    return jsonify({'message': 'New book added successfully!'})
+
+@app.route('/books-2pc', methods=['POST'])
+def add_book_2pc():
+    print('Received request to add a new book performing 2 Phase Commit.')
+    logger.info('Received request to add a new book.')
     if books_db_connected() and customers_db_connected():
         try:
             data = request.get_json()
