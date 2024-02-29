@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 source_tinydb_db_path = os.path.join(script_dir, 'customers.json')
 replicas_dir = os.path.join(script_dir, 'replicas')
 
+# Configure Redis nodes and Redis Cluster
 startup_nodes = [
     {"host": "redis-node1", "port": "7000"},
     {"host": "redis-node2", "port": "7001"},
@@ -79,6 +80,7 @@ def get_books():
     books = Book.query.all()
     output = [{'id': book.id, 'title': book.title, 'author': book.author, 'price': book.price, 'quantity': book.quantity} for book in books]
 
+    # Add books to Redis cache if they are not yet cached
     redis_cluster.set('books', json.dumps(output))
     print('Successfully added books to the Redis cache.')
     logger.info('Successfully added books to the Redis cache.')
@@ -99,6 +101,7 @@ def add_book():
         print('Redis cache cleared.')
         logger.info('Redis cache cleared.')
 
+    # Replicate the updated database data after a new book is added
     for replica_id in range(1, 5):
         replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
         try:
@@ -113,10 +116,13 @@ def add_book():
     logger.info('New book added successfully.')
     return jsonify({'message': 'New book added successfully!'})
 
+# Function implementing the 2 Phase Commit
 @app.route('/books-2pc', methods=['POST'])
 def add_book_2pc():
     print('Received request to add a new book performing 2 Phase Commit.')
     logger.info('Received request to add a new book.')
+
+    # Add new book if both databases are connected, if not - output error
     if books_db_connected() and customers_db_connected():
         try:
             data = request.get_json()
@@ -129,8 +135,10 @@ def add_book_2pc():
                 print('Redis cache cleared.')
                 logger.info('Redis cache cleared.')
 
+            # Increment the 'orders_count' value by 1 for every customer
             increment_order_count_for_customers()
 
+            # Replicate the updated database data after a new book is added
             for replica_id in range(1, 5):
                 replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
                 try:
@@ -153,6 +161,7 @@ def add_book_2pc():
         logger.error('Failed to add customer: One or both databases are not connected')
         return jsonify({'error': 'Failed to add customer: One or both databases are not connected'}), 500
 
+# Function to check if the books database is connected
 def books_db_connected():
     try:
         db.session.query(Book).first()
@@ -165,6 +174,7 @@ def books_db_connected():
         return jsonify({'error': f'Failed to connect to books database: {str(e)}'}), 500
 
 
+# Function to check if the customers database is connected
 def customers_db_connected():
     try:
         customers_table.search(Query().name.exists())
@@ -176,6 +186,7 @@ def customers_db_connected():
         logger.error(f'Failed to connect to customers database: {str(e)}')
         return jsonify({'error': f'Failed to connect to customers database: {str(e)}'}), 500
 
+# Function to increment the 'orders_count' value for every customer
 def increment_order_count_for_customers():
     with open('customers.json', 'r') as f:
         customers_data = json.load(f)
@@ -230,6 +241,7 @@ def add_customer():
     }
     customers_table.insert(new_customer)
 
+    # Replicate the updated database data after a new customer is added
     for replica_id in range(1, 5):
         replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
         try:
@@ -265,6 +277,7 @@ def update_customer(customer_id):
             with open(source_tinydb_db_path, 'w') as f:
                 json.dump(customers_data, f, indent=None)
 
+            # Replicate the updated database data after a new customer is added
             for replica_id in range(1, 5):
                 replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
                 try:
