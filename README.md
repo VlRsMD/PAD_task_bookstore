@@ -12,7 +12,7 @@ One of the endpoints of the bookstore service, namely the **'/books-2pc'** endpo
 First, the database connection is checked to the both databases (books database and customers database). If one of the databases or both databases are not connected, then an error is returned and commit is not done. 
 If both databases are connected, then a new book is added to the books database, and simultaneously in the customer database the *orders_count* value is incremented by 1 for every customer. 
 
-For consistent hashing Redis cluster with 6 Redis nodes is implemented. This Redis cluster has 3 master and 3 slave nodes. The configuration files for each Redis node can be found in the **cluster-test** folder and the corresponding subfolders for each node. 
+For consistent hashing Redis cluster with 6 Redis nodes is implemented. This Redis cluster has 3 master and 3 slave nodes. The configuration files for each Redis node can be found in the **'cluster-test'** folder and the corresponding subfolders for each node. 
 The Redis nodes and the corresponding cluster are created using Docker.
 On each GET request to fetch the books from the database the books retrieved from the database are added to the Redis cache. 
 Then each time a POST or PUT request is made, the Redis cache is cleared. Sharding is implemented automatically by Redis. 
