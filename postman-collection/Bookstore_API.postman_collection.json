@@ -234,7 +234,7 @@
 			"response": []
 		},
 		{
-			"name": "New Request",
+			"name": "Update book",
 			"request": {
 				"method": "PUT",
 				"header": [],
@@ -260,6 +260,37 @@
 					"path": [
 						"books",
 						"<int:book_id>"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Add new book using 2 Phase Commit",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"title\": \"Quotes\",\r\n    \"author\": \"Heidegger\",\r\n    \"price\": 9.5,\r\n    \"quantity\": 3\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://127.0.0.1:5050/books-2pc",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "5050",
+					"path": [
+						"books-2pc"
 					]
 				}
 			},
