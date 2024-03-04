@@ -1,0 +1,9 @@
+In order to create Redis nodes and form cluster for them that will be used by the service configured in the 'bookstore_service_for_local_redis' follow the following steps:
+
+1. Navigate to folder '7000' inside the 'cluster-test' folder using the following commands: 'cd cluster-test', 'cd 7000'
+2. Inside the '7000' folder enter the following command to start the Redis node: 'redis-server ./redis.conf'
+3. Repeat steps 1, 2 for each folder in the 'cluster-test' folder
+4. Create the cluster with the following command:
+'redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 \
+127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+--cluster-replicas 1'

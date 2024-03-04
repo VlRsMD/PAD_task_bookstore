@@ -4,8 +4,9 @@ from tinydb import TinyDB, Query
 import os
 import shutil
 import json
+from rediscluster import RedisCluster
 import logging
-import hashlib
+
 
 app = Flask(__name__)
 
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 source_tinydb_db_path = os.path.join(script_dir, 'customers.json')
 replicas_dir = os.path.join(script_dir, 'replicas')
+
+redis_nodes_str = os.environ.get('REDIS_NODES', '')
+redis_nodes = [node.split(':') for node in redis_nodes_str.split(',')]
+startup_nodes = [{"host": node[0], "port": node[1]} for node in redis_nodes]
+redis_cluster = RedisCluster(startup_nodes=startup_nodes, decode_responses=True)
 
 class Book(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -55,92 +61,23 @@ def create_databases():
 
         databases_created = True
 
-# Cache node containing data
-class CacheNode:
-    def __init__(self, node_id):
-        self.node_id = node_id
-        self.data = {}
-
-# Consistent hashing logic to distribute keys across nodes
-class ConsistentHashing:
-    def __init__(self, num_nodes):
-        # Create a list of cache nodes
-        self.nodes = [CacheNode(node_id) for node_id in range(num_nodes)]
-
-    # Get the node responsible for a given key based on consistent hashing
-    def get_node(self, key):
-        # Calculate the hash of the key
-        hash_value = hashlib.sha1(key.encode()).hexdigest()
-        # Map the hash to a node index
-        node_index = int(hash_value, 16) % len(self.nodes)
-        # Return the corresponding node
-        return self.nodes[node_index]
-
-# Distributed cache with sharding and consistent hashing
-class DistributedCache:
-    def __init__(self, num_shards, num_replicas):
-        self.num_shards = num_shards
-        self.num_replicas = num_replicas
-        # Create a list of sharding instances
-        self.shards = [ConsistentHashing(num_replicas) for _ in range(num_shards)]
-
-    # Get the value associated with a key from the cache
-    def get(self, key):
-        # Determine the shard index based on the hash of the key
-        shard_index = hash(key) % self.num_shards
-        # Get the node responsible for the key within the shard
-        node = self.shards[shard_index].get_node(key)
-        # Return the value associated with the key in the node's data
-        return node.data.get(key)
-
-    # Set a key-value pair in the cache
-    def set(self, key, value):
-        # Determine the shard index based on the hash of the key
-        shard_index = hash(key) % self.num_shards
-        # Get the node responsible for the key within the shard
-        node = self.shards[shard_index].get_node(key)
-        # Set the key-value pair in the node's data
-        node.data[key] = value
-
-    # Clear the cache for a specific key
-    def clear(self, key):
-        # Determine the shard index based on the hash of the key
-        shard_index = hash(key) % self.num_shards
-        # Get the node responsible for the key within the shard
-        node = self.shards[shard_index].get_node(key)
-        # Remove the key from the node's data if it exists
-        if key in node.data:
-            del node.data[key]
-
-    # Check if a cache with a specific key exists
-    def exists(self, key):
-        # Determine the shard index based on the hash of the key
-        shard_index = hash(key) % self.num_shards
-        # Get the node responsible for the key within the shard
-        node = self.shards[shard_index].get_node(key)
-        # Return True if the key exists in the node's data, False otherwise
-        return key in node.data
-
-cache = DistributedCache(num_shards=4, num_replicas=3)
-
 @app.route('/books', methods=['GET'])
 def get_books():
     print('Received request to fetch books.')
     logger.info('Received request to fetch books.')
+    cached_books = redis_cluster.get('books')
+    if cached_books:
+        print('Retrieving books from the Redis cache.')
+        logger.info('Retrieving books from the Redis cache.')
+        return jsonify(json.loads(cached_books))
 
     books = Book.query.all()
     output = [{'id': book.id, 'title': book.title, 'author': book.author, 'price': book.price, 'quantity': book.quantity} for book in books]
 
-    cached_books = cache.get('books')
-    if cached_books:
-        print('Retrieving books from the cache.')
-        logger.info('Retrieving books from the cache.')
-        return cached_books
-
-    # Add books to cache if they are not yet cached
-    cache.set('books', jsonify(output))
-    print('Successfully added books to the cache.')
-    logger.info('Successfully added books to the cache.')
+    # Add books to Redis cache if they are not yet cached
+    redis_cluster.set('books', json.dumps(output))
+    print('Successfully added books to the Redis cache.')
+    logger.info('Successfully added books to the Redis cache.')
 
     return jsonify(output)
 
@@ -153,10 +90,10 @@ def add_book():
     db.session.add(new_book)
     db.session.commit()
 
-    if cache.exists('books'):
-        cache.clear('books')
-        print('Books cache cleared.')
-        logger.info('Books cache cleared.')
+    if redis_cluster.exists('books'):
+        redis_cluster.delete('books')
+        print('Redis cache for books cleared.')
+        logger.info('Redis for books cache cleared.')
 
     # Replicate the updated database data after a new book is added
     for replica_id in range(1, 5):
@@ -187,18 +124,18 @@ def add_book_2pc():
             db.session.add(new_book)
             db.session.commit()
 
-            if cache.exists('books'):
-                cache.clear('books')
-                print('Books cache cleared.')
-                logger.info('Books cache cleared.')
+            if redis_cluster.exists('books'):
+                redis_cluster.delete('books')
+                print('Redis cache for books cleared.')
+                logger.info('Redis cache for books cleared.')
 
             # Increment the 'orders_count' value by 1 for every customer
             increment_order_count_for_customers()
 
-            if cache.exists('customers'):
-                cache.clear('customers')
-                print('Customers cache cleared.')
-                logger.info('Customers cache cleared.')
+            if redis_cluster.exists('customers'):
+                redis_cluster.delete('customers')
+                print('Redis cache for customers cleared.')
+                logger.info('Redis cache for customers cleared.')
 
             # Replicate the updated database data after a new book is added
             for replica_id in range(1, 5):
@@ -276,10 +213,10 @@ def update_book(book_id):
     book.quantity = data['quantity']
     db.session.commit()
 
-    if cache.exists('books'):
-        cache.clear('books')
-        print('Books cache cleared.')
-        logger.info('Books cache cleared.')
+    if redis_cluster.exists('books'):
+        redis_cluster.delete('books')
+        print('Redis cache for books cleared.')
+        logger.info('Redis cache for books cleared.')
 
     print('Book updated successfully!')
     logger.info('Book updated successfully!')
@@ -289,18 +226,14 @@ def update_book(book_id):
 def get_customers():
     print('Received request to fetch customers.')
     logger.info('Received request to fetch customers.')
-
-    cached_customers = cache.get('customers')
+    cached_customers = redis_cluster.get('customers')
     if cached_customers:
-        print('Retrieving customers from the cache.')
-        logger.info('Retrieving customers from the cache.')
-        return cached_customers
-
-    # Add customers to cache if they are not yet cached
-    cache.set('customers', jsonify(customers_table.all()))
-    print('Successfully added customers to the cache.')
-    logger.info('Successfully added customers to the cache.')
-
+        print('Retrieving customers from the Redis cache.')
+        logger.info('Retrieving customers from the Redis cache.')
+        return jsonify(json.loads(cached_customers))
+    redis_cluster.set('customers', json.dumps(customers_table.all()))
+    print('Successfully added customers to the Redis cache.')
+    logger.info('Successfully added customers to the Redis cache.')
     return jsonify(customers_table.all())
 
 @app.route('/customers', methods=['POST'])
@@ -315,10 +248,10 @@ def add_customer():
     }
     customers_table.insert(new_customer)
 
-    if cache.exists('customers'):
-        cache.clear('customers')
-        print('Customers cache cleared.')
-        logger.info('Customers cache cleared.')
+    if redis_cluster.exists('customers'):
+        redis_cluster.delete('customers')
+        print('Redis cache for customers cleared.')
+        logger.info('Redis for customers cache cleared.')
 
     # Replicate the updated database data after a new customer is added
     for replica_id in range(1, 5):
@@ -356,11 +289,6 @@ def update_customer(customer_id):
             with open(source_tinydb_db_path, 'w') as f:
                 json.dump(customers_data, f, indent=None)
 
-            if cache.exists('customers'):
-                cache.clear('customers')
-                print('Customers cache cleared.')
-                logger.info('Customers cache cleared.')
-
             # Replicate the updated database data after a new customer is added
             for replica_id in range(1, 5):
                 replica_db_path = os.path.join(replicas_dir, f'customers_replica{replica_id}.json')
@@ -371,6 +299,11 @@ def update_customer(customer_id):
                 except Exception as e:
                     print(f"Failed to replicate data in replica {replica_id}: {str(e)}")
                     logger.error(f"Failed to replicate data in replica {replica_id}: {str(e)}")
+
+            if redis_cluster.exists('customers'):
+                redis_cluster.delete('customers')
+                print('Redis cache for customers cleared.')
+                logger.info('Redis cache for customers cleared.')
 
             print('Customer updated successfully!')
             logger.info('Customer updated successfully!')
