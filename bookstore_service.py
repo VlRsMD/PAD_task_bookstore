@@ -6,6 +6,7 @@ import shutil
 import json
 import logging
 import hashlib
+from rediscluster import RedisCluster
 
 app = Flask(__name__)
 
