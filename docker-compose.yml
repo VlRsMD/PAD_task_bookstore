@@ -14,7 +14,8 @@ services:
       - "7000:7000"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST1=redis-node1
 
   redis-node2:
     image: redis:latest
@@ -25,7 +26,8 @@ services:
       - "7001:7001"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST2=redis-node2
 
   redis-node3:
     image: redis:latest
@@ -36,7 +38,8 @@ services:
       - "7002:7002"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST3=redis-node3
 
   redis-node4:
     image: redis:latest
@@ -47,7 +50,8 @@ services:
       - "7003:7003"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST4=redis-node4
 
   redis-node5:
     image: redis:latest
@@ -58,7 +62,8 @@ services:
       - "7004:7004"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST5=redis-node5
 
   redis-node6:
     image: redis:latest
@@ -69,7 +74,8 @@ services:
       - "7005:7005"
     networks:
       - my-network
-    restart: always
+    environment:
+      - REDIS_HOST6=redis-node6
 
   redis-cluster-init:
     image: redis:latest
@@ -84,6 +90,13 @@ services:
       - my-network
     command: >
       sh -c "sleep 10 && yes yes | redis-cli --cluster create redis-node1:7000 redis-node2:7001 redis-node3:7002 redis-node4:7003 redis-node5:7004 redis-node6:7005 --cluster-replicas 1"
+    environment:
+      - REDIS_HOST1=redis-node1
+      - REDIS_HOST2=redis-node2
+      - REDIS_HOST3=redis-node3
+      - REDIS_HOST4=redis-node4
+      - REDIS_HOST5=redis-node5
+      - REDIS_HOST6=redis-node6
 
   bookstore-service:
     depends_on:
@@ -93,6 +106,7 @@ services:
       - redis-node4
       - redis-node5
       - redis-node6
+      - redis-cluster-init
     build:
       context: .
       dockerfile: Dockerfile-service
@@ -111,6 +125,7 @@ services:
       - redis-node4
       - redis-node5
       - redis-node6
+      - redis-cluster-init
     build:
       context: .
       dockerfile: Dockerfile-replication
@@ -121,3 +136,5 @@ services:
       - "5074:5074"
     networks:
       - my-network
+    environment:
+      - REDIS_NODES=redis-node1:7000,redis-node2:7001,redis-node3:7002,redis-node4:7003,redis-node5:7004,redis-node6:7005

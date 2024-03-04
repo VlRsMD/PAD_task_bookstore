@@ -23,15 +23,9 @@ logger = logging.getLogger(__name__)
 source_tinydb_db_path = os.path.join(script_dir, 'customers.json')
 replicas_dir = os.path.join(script_dir, 'replicas')
 
-# Configure Redis nodes and Redis Cluster
-startup_nodes = [
-    {"host": "redis-node1", "port": "7000"},
-    {"host": "redis-node2", "port": "7001"},
-    {"host": "redis-node3", "port": "7002"},
-    {"host": "redis-node4", "port": "7003"},
-    {"host": "redis-node5", "port": "7004"},
-    {"host": "redis-node6", "port": "7005"},
-]
+redis_nodes_str = os.environ.get('REDIS_NODES', '')
+redis_nodes = [node.split(':') for node in redis_nodes_str.split(',')]
+startup_nodes = [{"host": node[0], "port": node[1]} for node in redis_nodes]
 redis_cluster = RedisCluster(startup_nodes=startup_nodes, decode_responses=True)
 
 class Book(db.Model):
